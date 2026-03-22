@@ -209,7 +209,10 @@ export class XRDeviceCamera extends VideoStream<XRDeviceCameraDetails> {
         };
         // Autoplay policy can still reject play() here.
         this.video_.play().catch((playError) => {
-          console.warn('video.play() rejected (may still autoplay):', playError);
+          console.warn(
+            'video.play() rejected (may still autoplay):',
+            playError
+          );
         });
       });
 
