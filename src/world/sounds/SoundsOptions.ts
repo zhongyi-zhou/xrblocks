@@ -5,6 +5,7 @@ export class SoundsOptions {
   enabled = false;
 
   backendConfig = {
+    activeBackend: 'mediapipe',
     mediapipe: {
       wasmFilesUrl: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-audio/wasm',
       modelAssetPath:

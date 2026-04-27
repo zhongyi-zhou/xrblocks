@@ -121,7 +121,7 @@ export class MediaPipeDetectorBackend extends BaseDetectorBackend {
 export class SoundDetector extends Script {
   static dependencies = {options: WorldOptions};
 
-  private backendPromise?: Promise<BaseDetectorBackend>;
+  private backendPromises = new Map<string, Promise<BaseDetectorBackend>>();
   private audioListener?: AudioListener;
   private isListening = false;
   private options?: WorldOptions;
@@ -134,17 +134,27 @@ export class SoundDetector extends Script {
   }
 
   private getOrCreateDetectorBackend(): Promise<BaseDetectorBackend> {
-    if (!this.backendPromise) {
-      if (!this.options) {
-        throw new Error(
-          'SoundDetector: Options not initialized. Call init first.'
-        );
-      }
-      this.backendPromise = (async () => {
-        return new MediaPipeDetectorBackend({options: this.options!});
-      })();
+    if (!this.options) {
+      throw new Error(
+        'SoundDetector: Options not initialized. Call init first.'
+      );
     }
-    return this.backendPromise;
+    const activeBackend = this.options.sounds.backendConfig.activeBackend;
+
+    let backendPromise = this.backendPromises.get(activeBackend);
+    if (!backendPromise) {
+      backendPromise = (async () => {
+        if (activeBackend === 'mediapipe') {
+          return new MediaPipeDetectorBackend({options: this.options!});
+        } else {
+          throw new Error(
+            `SoundDetector backend '${activeBackend}' is not supported.`
+          );
+        }
+      })();
+      this.backendPromises.set(activeBackend, backendPromise);
+    }
+    return backendPromise;
   }
 
   /**

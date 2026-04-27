@@ -15,6 +15,7 @@ options.world.enableSoundDetection?.();
 // Fallback to direct field manipulation if needed
 if (options.world.sounds) {
   options.world.sounds.enabled = true;
+  options.world.sounds.backendConfig.activeBackend = 'mediapipe';
 }
 
 options.setAppTitle('Sound Detector Demo');
