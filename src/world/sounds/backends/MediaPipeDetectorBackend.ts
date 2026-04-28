@@ -2,6 +2,7 @@ import type * as MEDIAPIPE from '@mediapipe/tasks-audio';
 import {
   DetectorBackendContext,
   BaseDetectorBackend,
+  NormalizedAudio,
 } from '../SoundDetectorBackend';
 import {AudioClassifierResult} from '../DetectedSounds';
 
@@ -54,12 +55,10 @@ export class MediaPipeDetectorBackend extends BaseDetectorBackend {
     );
   }
 
-  override classify(
-    audioData: Float32Array,
-    sampleRate: number
-  ): AudioClassifierResult | null {
+  override classify(audio: NormalizedAudio): AudioClassifierResult | null {
     if (!this.audioClassifier) return null;
 
+    const audioData = audio.data;
     for (let i = 0; i < audioData.length; i++) {
       this.accumulatedAudio.push(audioData[i]);
     }
@@ -70,9 +69,12 @@ export class MediaPipeDetectorBackend extends BaseDetectorBackend {
       );
       this.accumulatedAudio = this.accumulatedAudio.slice(this.chunkSamples); // simple non-overlapping window
 
-      console.log('Sample Rate: ', sampleRate);
-      const mediaPipeResult = this.audioClassifier.classify(chunk, sampleRate);
-      const debugData = this.populateDebugData(chunk, sampleRate);
+      console.log('Sample Rate: ', this.context.sampleRate);
+      const mediaPipeResult = this.audioClassifier.classify(
+        chunk,
+        this.context.sampleRate
+      );
+      const debugData = this.populateDebugData({data: chunk});
 
       return {
         items: mediaPipeResult,

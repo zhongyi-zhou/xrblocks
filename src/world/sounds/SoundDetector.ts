@@ -22,7 +22,9 @@ export class SoundDetector extends Script {
     this.options = options;
   }
 
-  private getOrCreateDetectorBackend(): Promise<BaseDetectorBackend> {
+  private getOrCreateDetectorBackend(
+    sampleRate: number
+  ): Promise<BaseDetectorBackend> {
     if (!this.options) {
       throw new Error(
         'SoundDetector: Options not initialized. Call init first.'
@@ -34,7 +36,10 @@ export class SoundDetector extends Script {
     if (!backendPromise) {
       backendPromise = (async () => {
         if (activeBackend === 'mediapipe') {
-          return new MediaPipeDetectorBackend({options: this.options!});
+          return new MediaPipeDetectorBackend({
+            options: this.options!,
+            sampleRate,
+          });
         } else {
           throw new Error(
             `SoundDetector backend '${activeBackend}' is not supported.`
@@ -62,20 +67,19 @@ export class SoundDetector extends Script {
         autoGainControl: true,
       });
     }
-    const backend = await this.getOrCreateDetectorBackend();
+
+    const sampleRate = this.audioListener?.audioContext?.sampleRate || 44000;
+    const backend = await this.getOrCreateDetectorBackend(sampleRate);
 
     try {
       this.isListening = true;
       await this.audioListener.startCapture({
         onAudioData: async (buffer: ArrayBuffer) => {
-          const int16 = new Int16Array(buffer);
+          if (!backend) return;
 
-          const normalizedAudio = backend.normalizeAudio(int16);
+          const normalizedAudio = backend.normalizeAudio(buffer);
 
-          const sampleRate =
-            this.audioListener?.audioContext?.sampleRate || 44000;
-
-          const result = backend.classify(normalizedAudio, sampleRate);
+          const result = backend.classify(normalizedAudio);
           if (result) {
             this.dispatchEvent({
               type: 'soundDetected',
@@ -84,6 +88,7 @@ export class SoundDetector extends Script {
           }
         },
       });
+
       console.log('SoundDetector: Started listening using AudioListener.');
     } catch (error) {
       console.error(
