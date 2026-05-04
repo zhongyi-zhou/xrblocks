@@ -28,15 +28,15 @@ async function loadMediaPipeModule() {
 export class MediaPipeDetectorBackend extends BaseDetectorBackend {
   private chunkSamples = 16000;
   private accumulatedAudio: number[] = [];
+
   private audioClassifier: MEDIAPIPE.AudioClassifier | null = null;
-  private initializationPromise: Promise<void>;
 
   constructor(context: DetectorBackendContext) {
     super(context);
     const mediapipeConfig = this.context.options.sounds.backendConfig.mediapipe;
     this.chunkSamples = mediapipeConfig.chunkSamples;
 
-    this.initializationPromise = this.tryInitializeAudioClassifier();
+    this.tryInitializeAudioClassifier();
   }
 
   private async tryInitializeAudioClassifier(): Promise<void> {
@@ -80,13 +80,17 @@ export class MediaPipeDetectorBackend extends BaseDetectorBackend {
       this.accumulatedAudio.push(audioData[i]);
     }
 
+    // chunkSamples is required because the MediaPipe AudioClassifier operates on
+    // discrete chunks of audio data. We accumulate samples until we reach this
+    // threshold before performing classification. If we do not accumulate enough samples,
+    // the MediaPipe AudioClassifier returns a classification of "Silence" which is not
+    // useful.
     if (this.accumulatedAudio.length >= this.chunkSamples) {
       const chunk = new Float32Array(
         this.accumulatedAudio.slice(0, this.chunkSamples)
       );
       this.accumulatedAudio = this.accumulatedAudio.slice(this.chunkSamples); // simple non-overlapping window
 
-      console.log('Sample Rate: ', this.context.sampleRate);
       const mediaPipeResult = this.audioClassifier.classify(
         chunk,
         this.context.sampleRate
