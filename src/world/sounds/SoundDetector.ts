@@ -6,6 +6,8 @@ import {MediaPipeDetectorBackend} from './backends/MediaPipeDetectorBackend';
 import {BaseDetectorBackend} from './SoundDetectorBackend';
 import {AudioClassifierResult} from './DetectedSounds';
 
+const DEFAULT_SAMPLE_RATE = 44000;
+
 interface SoundDetectorEventMap extends THREE.Object3DEventMap {
   soundDetected: {
     audioClassifierResult: AudioClassifierResult;
@@ -13,14 +15,18 @@ interface SoundDetectorEventMap extends THREE.Object3DEventMap {
 }
 
 /**
- * Detects sounds from the mic input stream using MediaPipe's Audio Classifier.
+ * Detects and classifies sounds in the user's environment using a specified backend.
+ * It queries an audio classifier model with the device mic input stream and returns
+ * classifications over specific time intervals along with confidence scores.
  */
 export class SoundDetector extends Script<SoundDetectorEventMap> {
   static dependencies = {options: WorldOptions};
 
-  private backendPromises = new Map<string, Promise<BaseDetectorBackend>>();
+  private _detectorBackends = new Map<string, Promise<BaseDetectorBackend>>();
   private audioListener?: AudioListener;
   private isListening = false;
+
+  // Injected dependencies
   private options?: WorldOptions;
 
   /**
@@ -30,40 +36,10 @@ export class SoundDetector extends Script<SoundDetectorEventMap> {
     this.options = options;
   }
 
-  private getOrCreateDetectorBackend(
-    sampleRate: number
-  ): Promise<BaseDetectorBackend> {
-    if (!this.options) {
-      throw new Error(
-        'SoundDetector: Options not initialized. Call init first.'
-      );
-    }
-    const activeBackend = this.options.sounds.backendConfig.activeBackend;
-
-    let backendPromise = this.backendPromises.get(activeBackend);
-    if (!backendPromise) {
-      backendPromise = (async () => {
-        if (activeBackend === 'mediapipe') {
-          return new MediaPipeDetectorBackend({
-            options: this.options!,
-            sampleRate,
-          });
-        } else {
-          throw new Error(
-            `SoundDetector backend '${activeBackend}' is not supported.`
-          );
-        }
-      })();
-      this.backendPromises.set(activeBackend, backendPromise);
-    }
-    return backendPromise;
-  }
-
   /**
-   * Starts listening to the provided or default mic input stream.
-   * @param stream - Optional MediaStream from the XR device's mic.
+   * Starts listening to the default mic input stream.
    */
-  async startListening(stream?: MediaStream) {
+  async startListening() {
     if (this.isListening) return;
 
     if (!this.audioListener) {
@@ -74,7 +50,8 @@ export class SoundDetector extends Script<SoundDetectorEventMap> {
       });
     }
 
-    const sampleRate = this.audioListener?.audioContext?.sampleRate || 44000;
+    const sampleRate =
+      this.audioListener?.audioContext?.sampleRate || DEFAULT_SAMPLE_RATE;
     const backend = await this.getOrCreateDetectorBackend(sampleRate);
 
     try {
@@ -117,5 +94,35 @@ export class SoundDetector extends Script<SoundDetectorEventMap> {
 
   override update(_timestamp: number, _frame?: XRFrame) {
     // No per-frame update logic needed, audio is handled asynchronously via streams.
+  }
+
+  private getOrCreateDetectorBackend(
+    sampleRate: number
+  ): Promise<BaseDetectorBackend> {
+    if (!this.options) {
+      throw new Error(
+        'SoundDetector: Options not initialized. Call init first.'
+      );
+    }
+    const activeBackend = this.options.sounds.backendConfig.activeBackend;
+
+    let detectorBackendPromise = this._detectorBackends.get(activeBackend);
+    if (!detectorBackendPromise) {
+      detectorBackendPromise = (async () => {
+        switch (activeBackend) {
+          case 'mediapipe':
+            return new MediaPipeDetectorBackend({
+              options: this.options!,
+              sampleRate,
+            });
+          default:
+            throw new Error(
+              `SoundDetector backend '${activeBackend}' is not supported.`
+            );
+        }
+      })();
+      this._detectorBackends.set(activeBackend, detectorBackendPromise);
+    }
+    return detectorBackendPromise;
   }
 }

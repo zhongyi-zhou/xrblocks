@@ -9,6 +9,7 @@ import {AudioClassifierResult} from '../DetectedSounds';
 let FilesetResolver: typeof MEDIAPIPE.FilesetResolver | undefined;
 let AudioClassifier: typeof MEDIAPIPE.AudioClassifier | undefined;
 
+// --- Attempt Dynamic Import ---
 async function loadMediaPipeModule() {
   if (FilesetResolver && AudioClassifier) {
     return;
@@ -53,6 +54,22 @@ export class MediaPipeDetectorBackend extends BaseDetectorBackend {
         baseOptions: {modelAssetPath: mediapipeConfig.modelAssetPath},
       }
     );
+  }
+
+  /**
+   * Normalizes audio data received as an ArrayBuffer (containing Int16 samples)
+   * into a Float32Array with values in the range [-1.0, 1.0] that the MediaPipe
+   * classifier can understand.
+   * @param arrayBuffer - The raw audio data buffer.
+   * @returns The normalized audio data.
+   */
+  override normalizeAudio(arrayBuffer: ArrayBuffer): NormalizedAudio {
+    const int16Data = new Int16Array(arrayBuffer);
+    const normalizedAudio = new Float32Array(int16Data.length);
+    for (let i = 0; i < int16Data.length; i++) {
+      normalizedAudio[i] = int16Data[i] / 32768.0;
+    }
+    return {data: normalizedAudio};
   }
 
   override classify(audio: NormalizedAudio): AudioClassifierResult | null {
