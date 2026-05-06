@@ -220,7 +220,10 @@ export class Portal extends THREE.Object3D {
       `,
       transparent: true,
       side: THREE.DoubleSide,
-      depthWrite: false,
+      // Write depth so this disc occludes other portals (and their additive
+      // rings/halos) that sit behind it. The thin edge feather still writes
+      // depth, which is fine — anything truly behind the rim is occluded.
+      depthWrite: true,
     });
     this._disc = new THREE.Mesh(geom, mat);
     this._disc.renderOrder = 1;
