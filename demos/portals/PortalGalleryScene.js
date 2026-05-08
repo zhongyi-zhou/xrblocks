@@ -35,6 +35,8 @@ const ARC_RADIUS = 2.2; // distance from user to each portal (meters)
 const ARC_SPAN = Math.PI * 0.85; // total arc span (~150°)
 
 const ENTRY_THRESHOLD = 0.9; // Portal radius * factor for plane-crossing check.
+const TRANSITION_COOLDOWN_MS = 600; // Lock new transitions briefly after each
+// fade so the very-next frame doesn't reverse-cross and snap us back.
 
 /**
  * A gallery of 5 portals arranged in a gentle arc in front of the user.
@@ -65,6 +67,7 @@ export class PortalGalleryScene extends xb.Script {
   _fadeSphere = null; // Transition fade overlay.
   _fadeTarget = 0; // Target opacity (0 = transparent, 1 = opaque).
   _fadeCallback = null; // Called when fade reaches 1.0 (fully opaque).
+  _transitionCooldownUntil = 0; // performance.now() timestamp; before this, no transitions fire.
 
   init() {
     const userY = xb.user?.height ?? 1.6;
@@ -243,6 +246,11 @@ export class PortalGalleryScene extends xb.Script {
     if (this._insidePortal) {
       this._activeImmersive.update(dt, cam);
       if (cam) {
+        // Real-time render of the room into exit portal (parallax as user moves).
+        // Only needed while in immersive mode — the disc shows the room snapshot
+        // here. In gallery mode the disc shows its scene shader, so the snapshot
+        // would be a wasted render pass.
+        this._captureExitSnapshot(cam, this.portals[this._activeIndex]);
         this._checkExit(cam);
         if (!this._insidePortal) return; // Exit just triggered, skip rest.
         // Billboard exit label toward camera.
@@ -255,24 +263,11 @@ export class PortalGalleryScene extends xb.Script {
         this._exitLabel.lookAt(cam.position);
         // Keep the active portal's ring animating.
         portal.update(dt, cam);
-        // Real-time render of the room into exit portal (parallax as user moves).
-        this._captureExitSnapshot(cam, portal);
       }
       return;
     }
 
     for (const p of this.portals) p.update(dt, cam);
-
-    // Continuously update exit snapshot for any portal that supports walk-in.
-    // (Picks the closest walk-in portal so its disc shows live room view.)
-    if (cam) {
-      for (let i = 0; i < this.portals.length; i++) {
-        if (this.immersives[i]) {
-          this._captureExitSnapshot(cam, this.portals[i]);
-          break;
-        }
-      }
-    }
 
     // Check if user walks through any walk-in capable portal.
     if (cam) {
@@ -294,24 +289,30 @@ export class PortalGalleryScene extends xb.Script {
 
   _checkEntry(cam) {
     if (this._fadeTarget === 1) return; // Fade in progress.
+    if (performance.now() < this._transitionCooldownUntil) return;
     const camWorld = cam.getWorldPosition(new THREE.Vector3());
 
     // Check each walk-in capable portal. First crossing wins.
+    // Crossing in EITHER direction triggers entry; fromSide tells the
+    // immersive which way the user was facing so it can spawn them
+    // pointing into the scene rather than at the back wall.
     for (let i = 0; i < this.portals.length; i++) {
       if (!this.immersives[i]) continue;
       const portal = this.portals[i];
       const local = portal.worldToLocal(camWorld.clone());
       const radialDist = Math.hypot(local.x, local.y);
       const curZ = local.z;
-      const prevZ = portal._prevCamLocalZ ?? 1.0;
+      const prevZ = portal._prevCamLocalZ ?? curZ;
 
+      const crossedFront = prevZ > 0 && curZ <= 0;
+      const crossedBack = prevZ < 0 && curZ >= 0;
       if (
-        prevZ > 0 &&
-        curZ <= 0 &&
+        (crossedFront || crossedBack) &&
         radialDist < Portal.RADIUS * ENTRY_THRESHOLD
       ) {
         portal._prevCamLocalZ = curZ;
-        this._enterImmersive(portal, i);
+        const fromSide = crossedFront ? 'front' : 'back';
+        this._enterImmersive(portal, i, fromSide);
         return;
       }
       portal._prevCamLocalZ = curZ;
@@ -319,6 +320,7 @@ export class PortalGalleryScene extends xb.Script {
   }
 
   _checkExit(cam) {
+    if (performance.now() < this._transitionCooldownUntil) return;
     const portal = this.portals[this._activeIndex];
     const camWorld = cam.getWorldPosition(new THREE.Vector3());
     const local = portal.worldToLocal(camWorld.clone());
@@ -326,35 +328,39 @@ export class PortalGalleryScene extends xb.Script {
     const radialDist = Math.hypot(local.x, local.y);
     const curZ = local.z;
 
-    // After entry, wait until user is clearly behind portal before arming exit.
+    // After entry, wait until user is clearly off the portal plane (either
+    // side) before arming exit. This avoids firing on the entry transition
+    // itself.
     if (!this._exitReady) {
-      if (curZ < -0.05) this._exitReady = true;
+      if (Math.abs(curZ) > 0.05) this._exitReady = true;
       this._prevCamLocalZ = curZ;
       return;
     }
 
-    // Crossed back from behind (z<0) to front (z>=0) within a generous radius.
-    if (
-      this._prevCamLocalZ < 0 &&
-      curZ >= 0 &&
-      radialDist < Portal.RADIUS * 1.5
-    ) {
+    // Any zero-crossing in z (front↔back, either direction) within a
+    // generous radius triggers exit.
+    const crossed =
+      (this._prevCamLocalZ > 0 && curZ <= 0) ||
+      (this._prevCamLocalZ < 0 && curZ >= 0);
+    if (crossed && radialDist < Portal.RADIUS * 1.5) {
       this._exitImmersive();
     }
 
     this._prevCamLocalZ = curZ;
   }
 
-  _enterImmersive(portal, index) {
+  _enterImmersive(portal, index, fromSide) {
     // Fade to white, then switch to immersive, then fade back.
     this._fadeTarget = 1;
     this._fadeCallback = () => {
       this._insidePortal = true;
       this._activeIndex = index;
       this._activeImmersive = this.immersives[index];
-      this._activeImmersive.show(portal.matrixWorld);
+      this._activeImmersive.show(portal.matrixWorld, fromSide);
       this._exitReady = false;
-      this._prevCamLocalZ = -1;
+      this._prevCamLocalZ = fromSide === 'front' ? -1 : 1;
+      this._transitionCooldownUntil =
+        performance.now() + TRANSITION_COOLDOWN_MS;
 
       // Swap active portal's disc to show the room render target.
       this._origDiscMat = portal._disc.material;
@@ -380,11 +386,18 @@ export class PortalGalleryScene extends xb.Script {
       this._insidePortal = false;
       this._activeImmersive.hide();
       this._exitLabel.visible = false;
+      this._transitionCooldownUntil =
+        performance.now() + TRANSITION_COOLDOWN_MS;
 
-      // Restore original disc material and render order.
+      // Restore original disc material and render order (matches the value
+      // set in Portal._buildDisc — must be 1, not 0, or the disc sorts
+      // behind other portals' rings/halos after the first cycle).
       const portal = this.portals[this._activeIndex];
       portal._disc.material = this._origDiscMat;
-      portal._disc.renderOrder = 0;
+      portal._disc.renderOrder = 1;
+      // Reset crossing state on every portal so the user can immediately
+      // re-enter without a phantom prevZ from before entry firing.
+      for (const p of this.portals) p._prevCamLocalZ = undefined;
 
       this._activeIndex = -1;
       this._activeImmersive = null;
