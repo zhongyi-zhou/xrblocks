@@ -45,10 +45,10 @@ export class CosmicImmersive extends THREE.Object3D {
         this._entryMatrix
       );
       const portalQuatInv = portalQuat.clone().invert();
-      const camQuat = camera.getWorldQuaternion(new THREE.Quaternion());
-      const localQuat = portalQuatInv.multiply(camQuat);
       // Build a rotation Matrix4, then extract upper-left 3×3 as Matrix3.
-      const rotMat4 = new THREE.Matrix4().makeRotationFromQuaternion(localQuat);
+      const rotMat4 = new THREE.Matrix4().makeRotationFromQuaternion(
+        portalQuatInv
+      );
       mat.uniforms.uViewRotation.value.setFromMatrix4(rotMat4);
     }
 
