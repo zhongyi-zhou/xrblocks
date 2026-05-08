@@ -1,6 +1,6 @@
-// Underwater scene: deep ocean with sunbeams, drifting jellyfish bloom,
-// schools of fish, passing whale shark, glowing bioluminescent burst,
-// rising bubble columns, falling marine snow.
+// Underwater scene: raycast jellyfish bloom, whale shark passing,
+// rising bubble columns, sunbeam shafts, sandy floor — same 3D content
+// as UnderwaterImmersive so the disc preview matches what's inside.
 export const UnderwaterScene = {
   name: 'Underwater',
 
@@ -10,9 +10,8 @@ export const UnderwaterScene = {
   haloOuter: 'vec3(0.30, 1.00, 0.85)',
 
   helpers: /* glsl */ `
-    // Voronoi-style caustic pattern.
-    float caustic(vec2 uv, float t) {
-      vec2 p = uv * 4.0;
+    float caustic2(vec2 uv, float t) {
+      vec2 p = uv * 0.6;
       float v = 0.0;
       for (int i = 0; i < 3; i++) {
         float fi = float(i);
@@ -22,228 +21,157 @@ export const UnderwaterScene = {
       return pow(max(v * 0.33 + 0.5, 0.0), 2.5);
     }
 
-    // A simple "fish" silhouette: streamlined body + tail wedge.
-    float fishShape(vec2 d, float facing) {
-      // d.x = along body (positive forward), d.y = vertical.
-      d.x *= facing;
-      float body = smoothstep(0.018, 0.014, abs(d.y))
-                 * smoothstep(0.030, 0.025, abs(d.x));
-      float tail = smoothstep(0.008, 0.0, d.x + 0.030)
-                 * smoothstep(0.020, 0.0, abs(d.y) - max(d.x + 0.030, 0.0)*1.5);
-      return clamp(body + tail, 0.0, 1.0);
+    // Glowing jellyfish bell + halo, projected on the ray at world pos.
+    vec3 jellyfish3D(vec3 ro, vec3 rd, vec3 pos, float t, float seed) {
+      vec3 oc = pos - ro;
+      float along = dot(oc, rd);
+      if (along < 0.5 || along > 25.0) return vec3(0.0);
+      vec3 proj = ro + rd * along;
+      float d = length(pos - proj);
+      float bellR = 0.5 + 0.1 * sin(t * 1.2 + seed * 7.0);
+      float bell = smoothstep(bellR, 0.0, d) * 0.55;
+      float halo = smoothstep(bellR * 3.0, bellR, d) * 0.18;
+      float fade = 1.0 / (1.0 + along * 0.08);
+      vec3 color = mix(vec3(0.4, 0.85, 1.0), vec3(0.85, 0.55, 1.0),
+                       sin(t + seed) * 0.5 + 0.5);
+      return color * (bell + halo) * fade;
     }
 
-    // Whale shark silhouette (much bigger, slow tail wave).
-    float whaleShape(vec2 d, float wave) {
-      // body: long ellipse
-      float body = smoothstep(0.045, 0.040, abs(d.y))
-                 * smoothstep(0.18, 0.16, abs(d.x));
-      // tail (swept)
-      float tailY = d.y + sin(d.x * 6.0 + wave) * 0.02;
-      float tail = smoothstep(0.020, 0.0, abs(tailY))
-                 * smoothstep(0.06, 0.0, max(d.x - 0.16, 0.0));
-      // dorsal fin nub
-      float fin = smoothstep(0.010, 0.0,
-          length(vec2(d.x + 0.04, max(d.y - 0.03, 0.0))));
-      return clamp(body + tail + fin, 0.0, 1.0);
+    // Whale shark drifting in a slow horizontal arc.
+    vec3 whaleShark3D(vec3 ro, vec3 rd, float t) {
+      float phase = t * 0.04;
+      vec3 pos = vec3(sin(phase) * 18.0,
+                      -3.0 + sin(t * 0.1) * 0.5,
+                      cos(phase) * 18.0 - 4.0);
+      vec3 oc = pos - ro;
+      float along = dot(oc, rd);
+      if (along < 1.0 || along > 40.0) return vec3(0.0);
+      vec3 proj = ro + rd * along;
+      vec3 d = pos - proj;
+      vec3 fwd = vec3(cos(phase), 0.0, -sin(phase));
+      float along2 = dot(d, fwd);
+      vec3 perp = d - fwd * along2;
+      float body = smoothstep(0.6, 0.0,
+                              length(vec2(along2 / 4.0, length(perp))));
+      float tail = smoothstep(0.6, 0.0,
+                              length(vec2((along2 - 4.0) / 1.5,
+                                          length(perp) * 2.0)));
+      float silhouette = max(body, tail * 0.7);
+      float fade = 1.0 / (1.0 + along * 0.05);
+      float spot = hash(floor(perp.xy * 30.0 + along2));
+      vec3 bodyCol = mix(vec3(0.06, 0.10, 0.14),
+                         vec3(0.18, 0.25, 0.30), spot);
+      return bodyCol * silhouette * fade;
+    }
+
+    // Rising bubble columns at fixed (hashed) xz positions.
+    vec3 bubbles3D(vec3 ro, vec3 rd, float t) {
+      vec3 col = vec3(0.0);
+      for (int i = 0; i < 8; i++) {
+        float fi = float(i);
+        float seed = fi * 13.7;
+        vec2 base = vec2(sin(seed) * 8.0 + cos(seed * 1.3) * 4.0,
+                         cos(seed * 0.7) * 8.0 + sin(seed * 1.1) * 4.0);
+        float bh = mod(t * 1.5 + seed * 3.0, 6.0) - 1.0;
+        vec3 pos = vec3(base.x + sin(bh + seed) * 0.15,
+                        -2.5 + bh,
+                        base.y + cos(bh + seed) * 0.15);
+        vec3 oc = pos - ro;
+        float along = dot(oc, rd);
+        if (along < 0.3 || along > 20.0) continue;
+        vec3 proj = ro + rd * along;
+        float d = length(pos - proj);
+        float r = 0.05 + 0.02 * sin(bh * 4.0 + seed);
+        float bubble = smoothstep(r, 0.0, d) * 0.4;
+        float fade = 1.0 / (1.0 + along * 0.15);
+        col += vec3(0.85, 0.95, 1.00) * bubble * fade;
+      }
+      return col;
+    }
+
+    // Volumetric sunbeam shafts when looking up.
+    float sunbeams3D(vec3 ro, vec3 rd, float t) {
+      if (rd.y < 0.05) return 0.0;
+      float density = 0.0;
+      float surfaceY = 8.0;
+      for (int i = 1; i <= 12; i++) {
+        float fi = float(i);
+        float along = fi * 0.7;
+        vec3 sp = ro + rd * along;
+        float depthFactor = clamp(sp.y / surfaceY, 0.0, 1.0);
+        float c = caustic2(sp.xz, t);
+        density += c * depthFactor * 0.05;
+      }
+      density *= pow(max(rd.y, 0.0), 0.6);
+      return density;
     }
   `,
 
   body: /* glsl */ `
-    // Stereo parallax layers.
-    vec2 pFar  = parallaxP(p, rd, 0.35);
-    vec2 pBack = parallaxP(p, rd, 0.22);
-    vec2 pMid  = parallaxP(p, rd, 0.12);
-    vec2 pNear = parallaxP(p, rd, 0.04);
+    vec3 ro = uCamLocal;
+    float t = uTime;
 
-    // Vertical depth gradient: bright surface up top, abyss below.
-    float depth = 0.5 - pFar.y * 0.5;
-    vec3 surface = vec3(0.20, 0.65, 0.85);
-    vec3 mid     = vec3(0.05, 0.30, 0.55);
-    vec3 abyss   = vec3(0.00, 0.05, 0.18);
-    col = mix(surface, mid,  smoothstep(0.0, 0.6, depth));
-    col = mix(col,     abyss, smoothstep(0.55, 1.0, depth));
+    // Vertical depth gradient (above eye = brighter, below = abyss).
+    vec3 surfaceCol = vec3(0.20, 0.65, 0.85);
+    vec3 midCol     = vec3(0.05, 0.30, 0.55);
+    vec3 abyssCol   = vec3(0.005, 0.020, 0.075);
+    float depthT = clamp(rd.y * 0.5 + 0.5, 0.0, 1.0);
+    col = mix(abyssCol, midCol, smoothstep(0.25, 0.55, depthT));
+    col = mix(col, surfaceCol, smoothstep(0.55, 0.95, depthT));
 
-    // Slow swaying water — sample-domain warp.
-    vec2 warp = vec2(sin(uTime * 0.4 + pFar.y * 3.0) * 0.02,
-                     cos(uTime * 0.3 + pFar.x * 2.0) * 0.02);
-    vec2 wp = pFar + warp;
-
-    // God-ray sunbeams streaming down from upper-left.
-    {
-      vec2 r = wp;
-      // Project rays from angle slightly off vertical.
-      float ang = -0.35;
-      float u = r.x * cos(ang) - r.y * sin(ang);
-      float v = r.x * sin(ang) + r.y * cos(ang);
-      float ray = 0.0;
-      for (int i = 0; i < 4; i++) {
-        float fi = float(i);
-        float w = 0.18 + fi * 0.07;
-        float off = sin(uTime * 0.3 + fi * 1.7) * 0.2 + fi * 0.35 - 0.5;
-        float band = exp(-pow((u - off) / w, 2.0));
-        ray += band * (0.4 + 0.6 * sin(uTime * 0.6 + fi));
-      }
-      // Falloff with depth & jitter.
-      ray *= smoothstep(1.0, -0.4, pFar.y);
-      ray *= 0.7 + 0.3 * fbm(vec2(u * 6.0, v * 3.0 + uTime * 0.4));
-      col += vec3(0.60, 0.90, 1.00) * ray * 0.55;
-    }
-
-    // Caustic shimmer near the surface.
-    float caus = caustic(wp + vec2(0.0, uTime * 0.05), uTime);
-    caus *= smoothstep(0.6, -0.6, pFar.y);
-    col += vec3(0.50, 0.95, 1.00) * caus * 0.35;
-
-    // Marine snow / drifting particles (always-on).
-    {
-      vec2 uvNear = pNear * 0.5 + 0.5;
-      float s = starsLayer(uvNear * 3.0 + vec2(0.0, uTime * 0.05), 60.0, 0.985);
-      col += vec3(0.85, 0.95, 1.0) * s * 0.7;
-      float s2 = starsLayer(uvNear * 3.0 + vec2(7.0, uTime * 0.10), 110.0, 0.992);
-      col += vec3(0.7, 0.85, 1.0) * s2 * 0.5;
-    }
-
-    // ---- Always-on fish school weaving across mid-depth ----
-    {
-      float t = uTime * 0.5;
-      for (int i = 0; i < 14; i++) {
-        float fi = float(i);
-        float row = floor(fi / 7.0);
-        float col_i = mod(fi, 7.0);
-        float baseY = -0.15 + row * 0.10
-                    + sin(t * 0.6 + col_i * 0.5) * 0.04;
-        float baseX = mod(col_i * 0.18 + t * 0.18 + row * 0.4, 2.4) - 1.4;
-        vec2 d = pMid - vec2(baseX, baseY);
-        float wig = sin(t * 4.0 + col_i + row * 1.7) * 0.005;
-        d.y += wig;
-        float f = fishShape(d, 1.0);
-        vec3 fc = mix(vec3(0.95, 0.75, 0.30),
-                      vec3(1.00, 0.95, 0.75), 0.5 + 0.5 * sin(fi));
-        col = mix(col, fc * 1.4, f * 0.85);
+    // Surface caustics + sun disc when looking up.
+    if (rd.y > 0.3) {
+      float surfaceY = 8.0;
+      float kt = (surfaceY - ro.y) / rd.y;
+      if (kt > 0.0) {
+        vec3 sp = ro + rd * kt;
+        float c = caustic2(sp.xz, t);
+        col = mix(col, vec3(0.95, 1.00, 0.75),
+                  c * smoothstep(0.3, 0.95, rd.y) * 0.55);
+        vec3 sunDir = normalize(vec3(0.2, 1.0, -0.3));
+        float sa = max(dot(rd, sunDir), 0.0);
+        col += vec3(1.00, 0.95, 0.75)
+             * smoothstep(0.965, 0.995, sa) * 0.9;
+        col += vec3(1.00, 0.95, 0.75)
+             * smoothstep(0.85, 1.0, sa) * 0.25;
       }
     }
 
-    // ---- Bubble column rising every 4s from random spot ----
-    {
-      float cycle = 4.0;
-      float k = floor(uTime / cycle);
-      float local = uTime - k * cycle;
-      float baseX = hash(vec2(k, 3.1)) * 1.6 - 0.8;
-      for (int i = 0; i < 6; i++) {
-        float fi = float(i);
-        float dly = fi * 0.4;
-        float life = local - dly;
-        if (life > 0.0 && life < cycle - dly) {
-          float by = -1.0 + life * 0.45;
-          float bx = baseX + sin(life * 3.0 + fi) * 0.04;
-          float br = 0.012 + fi * 0.003;
-          float d = length(pNear - vec2(bx, by));
-          float bub = smoothstep(br, br * 0.5, d);
-          // Highlight rim
-          float rim = smoothstep(br, br * 0.85, d) - smoothstep(br * 0.85, br * 0.7, d);
-          col = mix(col, vec3(0.85, 0.98, 1.05), bub * 0.6);
-          col += vec3(1.0, 1.0, 1.0) * max(rim, 0.0) * 0.6;
-        }
+    // Volumetric sunbeams.
+    col += vec3(0.80, 0.95, 1.00) * sunbeams3D(ro, rd, t) * 1.4;
+
+    // Sandy ocean floor.
+    if (rd.y < -0.1) {
+      float gt = -ro.y - 6.0;
+      float t2 = gt / rd.y;
+      if (t2 > 0.0 && t2 < 80.0) {
+        vec3 gp = ro + rd * t2;
+        float gn = fbm(gp.xz * 0.15);
+        vec3 ground = mix(vec3(0.05, 0.10, 0.12),
+                          vec3(0.10, 0.18, 0.20), gn);
+        float fog = smoothstep(0.0, 35.0, t2);
+        col = mix(ground, col, fog);
       }
     }
 
-    // ---- Jellyfish bloom drifting through every 14s ----
-    {
-      float cycle = 14.0;
-      float k = floor(uTime / cycle);
-      float local = uTime - k * cycle;
-      float life = smoothstep(0.0, 1.0, local) * smoothstep(cycle, cycle - 2.0, local);
-      for (int i = 0; i < 5; i++) {
-        float fi = float(i);
-        float baseX = -1.5 + local * 0.18 + fi * 0.35
-                    + sin(uTime * 0.6 + fi) * 0.05;
-        float baseY = -0.2 + sin(uTime * 0.4 + fi * 1.3) * 0.3 + fi * 0.06;
-        vec2 c = vec2(baseX, baseY);
-        vec2 d = pMid - c;
-        // Bell (top hemisphere)
-        float bellR = 0.06 + fi * 0.005;
-        float bell = smoothstep(bellR, bellR * 0.85, length(d))
-                   * step(d.y, 0.0);
-        // Tendrils trailing below
-        float tendril = 0.0;
-        for (int j = 0; j < 5; j++) {
-          float fj = float(j);
-          float tx = (fj - 2.0) * 0.012
-                   + sin(uTime * 1.2 + fj + fi) * 0.01;
-          float td = abs(d.x - tx);
-          float ty = max(-d.y, 0.0);
-          tendril += smoothstep(0.005, 0.0, td)
-                   * smoothstep(0.20, 0.0, ty);
-        }
-        // Bioluminescent pulse on the bell rim.
-        float pulse = 0.5 + 0.5 * sin(uTime * 2.5 + fi * 1.7);
-        vec3 jellyCol = mix(vec3(0.55, 0.30, 0.95),
-                            vec3(0.30, 0.95, 0.85), pulse);
-        col += jellyCol * (bell * 1.3 + tendril * 0.6) * life;
-      }
+    // Drifting jellyfish bloom.
+    for (int i = 0; i < 5; i++) {
+      float fi = float(i);
+      float seed = fi * 11.3;
+      vec3 jp = vec3(
+        sin(t * 0.2 + seed) * 5.0 + cos(seed * 1.7) * 3.0,
+        0.5 + sin(t * 0.3 + seed * 0.7) * 2.0,
+        cos(t * 0.25 + seed) * 5.0 + sin(seed * 0.9) * 3.0);
+      col += jellyfish3D(ro, rd, jp, t, seed);
     }
 
-    // ---- Whale shark passing through every 19s ----
-    {
-      float cycle = 19.0;
-      float k = floor(uTime / cycle);
-      float local = uTime - k * cycle;
-      float life = smoothstep(0.0, 1.5, local) * smoothstep(cycle, cycle - 2.0, local);
-      // Slow horizontal drift.
-      float baseY = (hash(vec2(k, 41.7)) - 0.5) * 0.4;
-      vec2 c = vec2(-1.8 + local * 0.18, baseY);
-      vec2 d = pBack - c;
-      float wave = uTime * 1.5 + k;
-      float w = whaleShape(d, wave);
-      // Body color: deep blue-gray with white spots.
-      vec3 body = vec3(0.20, 0.30, 0.40);
-      float spots = step(0.7, hash(floor((pBack - c) * vec2(40.0, 60.0))));
-      body = mix(body, vec3(0.80, 0.90, 1.0), spots * 0.6);
-      // Belly highlight (lower side lighter).
-      body = mix(body, vec3(0.50, 0.65, 0.75),
-                 smoothstep(-0.02, 0.04, d.y));
-      col = mix(col, body, w * life * 0.95);
-    }
+    // Whale shark passing.
+    col += whaleShark3D(ro, rd, t);
 
-    // ---- Bioluminescent burst every 11s ----
-    {
-      float cycle = 11.0;
-      float k = floor(uTime / cycle);
-      float local = uTime - k * cycle;
-      vec2 bp = vec2(hash(vec2(k, 51.3)) * 1.4 - 0.7,
-                     hash(vec2(k, 67.7)) * 1.4 - 0.7);
-      float dr = length(pMid - bp);
-      float flash = smoothstep(0.0, 0.1, local) * smoothstep(2.5, 0.2, local);
-      float core = smoothstep(0.04, 0.0, dr) * 3.5;
-      float halo = smoothstep(0.4, 0.0, dr) * 1.0;
-      // Sparks radiating outward
-      float ang = atan(pMid.y - bp.y, pMid.x - bp.x);
-      float spark = pow(0.5 + 0.5 * cos(ang * 18.0 + local * 8.0), 6.0)
-                  * smoothstep(0.30, 0.04, dr);
-      vec3 bioCol = mix(vec3(0.30, 1.00, 0.85),
-                        vec3(0.55, 0.45, 1.20),
-                        sin(uTime * 0.7) * 0.5 + 0.5);
-      col += bioCol * (core + halo + spark * 1.2) * flash;
-    }
+    // Rising bubble columns.
+    col += bubbles3D(ro, rd, t);
 
-    // ---- Lightning flash through water every 26s ----
-    {
-      float cycle = 26.0;
-      float k = floor(uTime / cycle);
-      float local = uTime - k * cycle;
-      float flash = smoothstep(0.0, 0.05, local) * smoothstep(0.8, 0.1, local);
-      // Quick double-flash
-      flash *= 0.5 + 0.5 * sin(local * 50.0);
-      // Whole upper region brightens through caustics.
-      float upper = smoothstep(1.0, -0.2, pFar.y);
-      col += vec3(0.70, 0.85, 1.00) * flash * upper * 0.9;
-      // Bright fork from upper edge.
-      float fx = hash(vec2(k, 91.7)) * 1.6 - 0.8;
-      float fork = smoothstep(0.012, 0.0,
-          abs(pFar.x - (fx + sin(pFar.y * 14.0 + k) * 0.04)))
-        * smoothstep(-0.8, 1.0, pFar.y);
-      col += vec3(0.95, 0.95, 1.10) * fork * flash * 2.5;
-    }
+    // Mild blue haze.
+    col = mix(col, midCol, 0.14);
   `,
 };
