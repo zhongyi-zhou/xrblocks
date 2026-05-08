@@ -145,31 +145,6 @@ export class LavaImmersive extends THREE.Object3D {
           return vec2(mask, crater);
         }
 
-        // Distant ash plume rising from volcano top: animated noise.
-        vec3 ashPlume(vec3 rd, float az0, float dist, float t) {
-          float az = atan(rd.x, -rd.z);
-          float alt = asin(clamp(rd.y, -1.0, 1.0));
-          float dAz = az - az0;
-          if (dAz > 3.14159) dAz -= 6.28318;
-          if (dAz < -3.14159) dAz += 6.28318;
-          float plumeW = 0.30 / dist;
-          float plumeBase = 0.22 / dist;
-          if (alt < plumeBase || abs(dAz) > plumeW) return vec3(0.0);
-          float h = (alt - plumeBase) / 0.6;
-          float widthFactor = mix(0.4, 1.4, smoothstep(0.0, 0.7, h));
-          float dxNorm = abs(dAz) / (plumeW * widthFactor);
-          if (dxNorm > 1.0) return vec3(0.0);
-          float density = fbm(vec2(dAz * 30.0 - t * 0.15, h * 4.0 - t * 0.3));
-          density *= (1.0 - dxNorm) * smoothstep(0.0, 0.2, h)
-                   * smoothstep(1.0, 0.6, h);
-          // Ash is dark grey with orange underlit.
-          vec3 dark = vec3(0.10, 0.06, 0.08);
-          vec3 lit = vec3(0.65, 0.30, 0.10);
-          float underlight = smoothstep(0.4, 0.0, h);
-          vec3 ash = mix(dark, lit, underlight);
-          return ash * density * 0.9;
-        }
-
         float raySphere(vec3 ro, vec3 rd, vec3 c, float rad) {
           vec3 oc = ro - c;
           float b = dot(oc, rd);
@@ -363,47 +338,6 @@ export class LavaImmersive extends THREE.Object3D {
           return col;
         }
 
-        // Lava bombs: large glowing spheres on parabolic trajectories.
-        vec3 lavaBombs(vec3 ro, vec3 rd, float t) {
-          vec3 col = vec3(0.0);
-          for (int i = 0; i < 4; i++) {
-            float fi = float(i);
-            float seed = fi * 23.7;
-            float cycle = mod(t * 0.4 + seed, 5.0);
-            // Parabolic path from volcano direction toward user/horizon.
-            float az0 = 2.5 + sin(seed) * 0.8;
-            vec3 origin = vec3(sin(az0) * 25.0, 6.0, -cos(az0) * 25.0);
-            vec3 dir = normalize(vec3(-sin(az0) * 0.6, 0.0, cos(az0) * 0.6)
-                               + vec3(sin(seed * 3.7) * 0.3, 0.0,
-                                      cos(seed * 3.7) * 0.3));
-            vec3 pos = origin + dir * cycle * 6.0
-                     + vec3(0.0, cycle * 4.0 - cycle * cycle * 1.2, 0.0);
-            vec3 oc = pos - ro;
-            float along = dot(oc, rd);
-            if (along < 0.5 || along > 30.0) continue;
-            vec3 proj = ro + rd * along;
-            float d = length(pos - proj);
-            float r = 0.18;
-            float bomb = smoothstep(r, 0.0, d);
-            float halo = smoothstep(r * 6.0, r, d) * 0.25;
-            float fade = 1.0 / (1.0 + along * 0.08);
-            col += vec3(1.00, 0.50, 0.10) * (bomb * 1.5 + halo) * fade;
-            // Trailing smoke
-            for (int j = 1; j <= 3; j++) {
-              float fj = float(j);
-              vec3 trailPos = pos - dir * fj * 0.4
-                            - vec3(0.0, fj * 0.1, 0.0);
-              vec3 oc2 = trailPos - ro;
-              float a2 = dot(oc2, rd);
-              if (a2 < 0.5 || a2 > 30.0) continue;
-              vec3 pj = ro + rd * a2;
-              float dj = length(trailPos - pj);
-              float trail = smoothstep(r * 0.7, 0.0, dj) * 0.18 / fj;
-              col += vec3(0.30, 0.18, 0.18) * trail;
-            }
-          }
-          return col;
-        }
 
         void main() {
           vec3 rd = normalize(uViewRotation * vWorldDir);
@@ -533,12 +467,6 @@ export class LavaImmersive extends THREE.Object3D {
               col += vec3(1.0, 0.55, 0.20) * trail * 0.4;
             }
           }
-
-          // Ash plumes rising from the main volcano.
-          col += ashPlume(rd, atan(-8.0, 14.0), 1.4, t);
-
-          // ---- Lava bombs (raymarched glowing spheres) ----
-          col += lavaBombs(ro, rd, t);
 
           // ---- Embers ----
           col += embers(ro, rd, t);

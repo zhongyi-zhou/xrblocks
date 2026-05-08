@@ -214,7 +214,7 @@ export const LavaScene = {
       opaqueT = v1Hit.w;
       opaqueCol = v1Hit.rgb;
     }
-    vec4 v2Hit = volcanoCone(ro, rd, vec3(-12.0, -1.6, -10.0), 4.2,
+    vec4 v2Hit = volcanoCone(ro, rd, vec3(-15.0, -1.6, 8.0), 4.2,
                               6.0, 1.8, uTime);
     if (v2Hit.w < opaqueT) {
       opaqueT = v2Hit.w;
