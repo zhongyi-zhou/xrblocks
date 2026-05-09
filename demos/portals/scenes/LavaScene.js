@@ -365,44 +365,6 @@ export const LavaScene = {
       col += vec3(1.0, 0.95, 0.55) * flash * 1.2;
     }
 
-    // ---- Lava bombs every 5s arcing across sky ----
-    {
-      float cycle = 5.0;
-      float k = floor(uTime / cycle);
-      float local = uTime - k * cycle;
-      for (int i = 0; i < 4; i++) {
-        float fi = float(i);
-        float dly = fi * 0.8;
-        float life = local - dly;
-        if (life > 0.0 && life < cycle - dly) {
-          // Parabolic arc from crater to a random landing point.
-          float landX = (hash(vec2(k, fi + 11.7)) - 0.5) * 1.8;
-          vec2 c0 = vec2(0.0, volcCenter.y + volcH);
-          vec2 c1 = vec2(landX, -0.55);
-          float u = life / 1.8;
-          if (u <= 1.0) {
-            vec2 pos = mix(c0, c1, u);
-            pos.y += sin(u * 3.14159) * (0.35 + fi * 0.05);
-            float dr = length(pMid - pos);
-            float bomb = smoothstep(0.02, 0.0, dr);
-            col += vec3(1.0, 0.85, 0.30) * bomb * 2.5;
-            // Trailing smoke.
-            for (int j = 0; j < 6; j++) {
-              float fj = float(j);
-              float u2 = u - fj * 0.04;
-              if (u2 > 0.0) {
-                vec2 pos2 = mix(c0, c1, u2);
-                pos2.y += sin(u2 * 3.14159) * (0.35 + fi * 0.05);
-                float td = length(pMid - pos2);
-                float trail = smoothstep(0.012 + fj * 0.003, 0.0, td);
-                col += vec3(0.85, 0.45, 0.20) * trail * (1.0 - fj * 0.15);
-              }
-            }
-          }
-        }
-      }
-    }
-
     // ---- Volcanic lightning in ash plume every 7s ----
     {
       float cycle = 7.0;
