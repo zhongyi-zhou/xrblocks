@@ -284,6 +284,13 @@ export class ForestImmersive extends THREE.Object3D {
           vec3 rd = normalize(uViewRotation * vWorldDir);
           vec3 ro = uCamLocal;
 
+          // Forward-cone projection for 2D cinematic events (owl, comet, etc.).
+          // Same approach as CosmicImmersive: project ray onto a screen plane
+          // perpendicular to the entry-facing axis (-Z in portal-local space).
+          float forwardness = max(-rd.z, 0.0);
+          vec2 p = rd.xy / max(-rd.z, 0.15);
+          float fwdMask = smoothstep(0.0, 0.3, forwardness);
+
           // ---- Twilight sky gradient ----
           float skyT = clamp(rd.y * 0.5 + 0.5, 0.0, 1.0);
           vec3 skyTop = vec3(0.04, 0.03, 0.16);
@@ -407,6 +414,114 @@ export class ForestImmersive extends THREE.Object3D {
 
           // Fireflies (additive, in 3D).
           col += fireflies(ro, rd, uTime);
+
+          // ---- Owl gliding past every 12s (forward cone) ----
+          if (fwdMask > 0.0) {
+            float owlCycle = 12.0;
+            float owlK = floor(uTime / owlCycle);
+            float owlLocal = uTime - owlK * owlCycle;
+            float owlLife = smoothstep(0.0, 0.3, owlLocal)
+                          * smoothstep(owlCycle, owlCycle - 1.0, owlLocal);
+            if (owlLife > 0.0) {
+              float owlDir = (mod(owlK, 2.0) < 0.5) ? 1.0 : -1.0;
+              float owlBaseX = -1.6 * owlDir + owlDir * owlLocal * 0.32;
+              float owlBaseY = 0.20 + sin(owlLocal * 1.5 + owlK) * 0.03;
+              vec2 owlC = vec2(owlBaseX, owlBaseY);
+              vec2 owlD = p - owlC;
+              // Body silhouette
+              float owlBody = smoothstep(0.025, 0.020, length(owlD * vec2(1.4, 1.0)));
+              // Wings: two flapping arcs
+              float owlFlap = sin(uTime * 6.0 + owlK * 2.0);
+              for (int s = -1; s <= 1; s += 2) {
+                float fs = float(s);
+                vec2 wc = owlC + vec2(fs * 0.05, 0.0);
+                vec2 wd = p - wc;
+                float wAng = fs * (0.6 + owlFlap * 0.5);
+                float wx = wd.x * cos(wAng) - wd.y * sin(wAng);
+                float wy = wd.x * sin(wAng) + wd.y * cos(wAng);
+                float wing = smoothstep(0.05, 0.04, abs(wy))
+                           * smoothstep(0.07, 0.0, wx * fs)
+                           * step(0.0, wx * fs);
+                owlBody = max(owlBody, wing);
+              }
+              col = mix(col, vec3(0.04, 0.04, 0.05), owlBody * owlLife * fwdMask);
+              // Eye glints
+              float owlEye = smoothstep(0.005, 0.0,
+                  length(p - owlC - vec2(0.012, 0.005)))
+                + smoothstep(0.005, 0.0,
+                  length(p - owlC - vec2(-0.012, 0.005)));
+              col += vec3(1.0, 0.85, 0.20) * owlEye * owlLife * 1.5 * fwdMask;
+            }
+          }
+
+          // ---- Comet streaking through canopy every 16s (forward cone) ----
+          if (fwdMask > 0.0) {
+            float cometCycle = 16.0;
+            float cometK = floor(uTime / cometCycle);
+            float cometLocal = uTime - cometK * cometCycle;
+            float cometLife = smoothstep(0.0, 0.2, cometLocal)
+                            * smoothstep(2.5, 0.2, cometLocal);
+            if (cometLife > 0.0) {
+              vec2 cometStart = vec2(1.4, 0.9);
+              vec2 cometEnd   = vec2(-1.4, -0.2);
+              vec2 cometDir = normalize(cometEnd - cometStart);
+              vec2 cometPerp = vec2(-cometDir.y, cometDir.x);
+              vec2 cometPos = mix(cometStart, cometEnd,
+                                  clamp(cometLocal * 0.5, 0.0, 1.0));
+              vec2 cd = p - cometPos;
+              float cAlong = dot(cd, -cometDir);
+              float cAcross = dot(cd, cometPerp);
+              float cHead = smoothstep(0.02, 0.0, length(cd));
+              float cTail = smoothstep(0.005, 0.0, abs(cAcross))
+                          * smoothstep(0.55, 0.0, cAlong)
+                          * step(0.0, cAlong);
+              col += vec3(0.90, 0.85, 1.00) * (cHead * 2.5 + cTail * 1.1)
+                   * cometLife * fwdMask;
+              // Wide soft halo glow
+              col += vec3(0.40, 0.55, 0.85) * smoothstep(0.15, 0.0, length(cd))
+                   * cometLife * 0.4 * fwdMask;
+            }
+          }
+
+          // ---- Lightning storm flashes every 8s (forward cone) ----
+          if (fwdMask > 0.0) {
+            float ltCycle = 8.0;
+            float ltK = floor(uTime / ltCycle);
+            float ltLocal = uTime - ltK * ltCycle;
+            float ltFlash = smoothstep(0.0, 0.05, ltLocal)
+                          * smoothstep(0.5, 0.05, ltLocal);
+            ltFlash *= 0.5 + 0.5 * sin(ltLocal * 60.0);
+            if (ltFlash > 0.0) {
+              // Sky flash (upper region)
+              float ltUpper = smoothstep(-0.4, 0.5, p.y);
+              col += vec3(0.65, 0.75, 0.95) * ltFlash * ltUpper * 0.6 * fwdMask;
+              // Forked bolt on the horizon
+              float ltBx = (hash(vec2(ltK, 17.1)) - 0.5) * 1.4;
+              float ltBolt = smoothstep(0.005, 0.0,
+                  abs(p.x - (ltBx + sin(p.y * 18.0 + ltK) * 0.04)))
+                * smoothstep(0.4, -0.3, p.y) * step(-0.4, p.y);
+              col += vec3(1.0, 1.0, 1.10) * ltBolt * ltFlash * 3.0 * fwdMask;
+            }
+          }
+
+          // ---- Aurora ribbon every 24s (forward cone) ----
+          if (fwdMask > 0.0) {
+            float aurCycle = 24.0;
+            float aurK = floor(uTime / aurCycle);
+            float aurLocal = uTime - aurK * aurCycle;
+            float aurLife = smoothstep(0.0, 2.0, aurLocal)
+                          * smoothstep(8.0, 5.0, aurLocal);
+            if (aurLife > 0.001) {
+              float bandY = 0.55 + sin(p.x * 3.0 + uTime * 0.6) * 0.08
+                                 + sin(p.x * 7.0 + uTime * 0.4) * 0.04;
+              float band = exp(-pow((p.y - bandY) / 0.10, 2.0));
+              float streak = pow(fbm(vec2(p.x * 18.0, p.y * 6.0 - uTime * 0.8)), 1.4);
+              vec3 aurCol = mix(vec3(0.30, 1.00, 0.60),
+                                vec3(0.40, 0.55, 1.00),
+                                0.5 + 0.5 * sin(p.x * 2.0 + uTime * 0.5));
+              col += aurCol * band * streak * aurLife * 1.0 * fwdMask;
+            }
+          }
 
           // Subtle noise to break up bands.
           col += (hash(gl_FragCoord.xy + uTime) - 0.5) * 0.012;
