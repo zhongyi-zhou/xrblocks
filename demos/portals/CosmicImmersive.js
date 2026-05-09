@@ -281,7 +281,7 @@ export class CosmicImmersive extends THREE.Object3D {
           vec3 lightDirPlanet = normalize(sunPos - planetPos);
           vec3 lightDirMoon   = normalize(sunPos - moonPos);
           vec3 lightDirGas    = normalize(sunPos - gasPos);
-          vec3 limbCenter = vec3(3.5, -5.5, -3.5) * sc;
+          vec3 limbCenter = vec3(-3.5, -5.5, -3.5) * sc;
           float limbRadius = 5.5 * sc;
           vec3 lightDirLimb = normalize(sunPos - limbCenter);
 
