@@ -32,8 +32,6 @@ export class LanguageDetectorDemo extends xb.Script {
   _buildUi() {
     const panel = new xb.SpatialPanel({
       backgroundColor: '#101218e6',
-      width: 1.2,
-      height: 0.8,
     });
     this.add(panel);
 
@@ -72,14 +70,13 @@ export class LanguageDetectorDemo extends xb.Script {
       fontSize: 0.035,
     });
 
-    // Controls.
+    // Controls row — wrap in a sub-panel + grid like icebreakers does.
     const controlRow = grid.addRow({weight: 0.17});
-    const controlGrid = controlRow.addGrid();
+    const controlGrid = controlRow.addPanel({showEdge: false}).addGrid();
 
     controlGrid.addCol({weight: 0.15});
 
-    const micCol = controlGrid.addCol({weight: 0.2});
-    this.webButton = micCol.addIconButton({
+    this.webButton = controlGrid.addCol({weight: 0.2}).addIconButton({
       text: 'mic',
       fontSize: 0.6,
       fontColor: '#ffffff',
@@ -88,8 +85,7 @@ export class LanguageDetectorDemo extends xb.Script {
 
     controlGrid.addCol({weight: 0.05});
 
-    const geminiCol = controlGrid.addCol({weight: 0.2});
-    this.geminiButton = geminiCol.addIconButton({
+    this.geminiButton = controlGrid.addCol({weight: 0.2}).addIconButton({
       text: 'auto_awesome',
       fontSize: 0.6,
       fontColor: '#ffffff',
@@ -98,8 +94,7 @@ export class LanguageDetectorDemo extends xb.Script {
 
     controlGrid.addCol({weight: 0.05});
 
-    const clearCol = controlGrid.addCol({weight: 0.2});
-    this.clearButton = clearCol.addIconButton({
+    this.clearButton = controlGrid.addCol({weight: 0.2}).addIconButton({
       text: 'delete',
       fontSize: 0.55,
       fontColor: '#ffffff',
