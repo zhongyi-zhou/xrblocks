@@ -42,8 +42,13 @@ export class GeminiLiveSource {
           this._handlers.error?.(e);
           reject(e);
         },
-        onclose: () => {
+        onclose: (e) => {
           this._running = false;
+          if (e?.code && e.code !== 1000) {
+            this._handlers.error?.(
+              new Error(`Gemini closed: ${e.reason || e.code}`)
+            );
+          }
         },
       });
       xb.core.ai.startLiveSession({inputAudioTranscription: {}}).catch(reject);

@@ -105,6 +105,8 @@ export class LanguageDetectorDemo extends xb.Script {
     source.onError((err) => {
       console.error('Speech source error:', err);
       this._setStatus('Error: ' + (err?.message || err));
+      this.listening = false;
+      this.source = null;
     });
     try {
       await source.start();
