@@ -76,7 +76,9 @@ export class GeminiLiveSource {
       this._handlers.transcript?.(this._buffer.trim(), false);
     }
     if (content.turnComplete) {
-      this._handlers.transcript?.(this._buffer.trim(), true);
+      const finalText = this._buffer.trim();
+      this._buffer = '';
+      if (finalText) this._handlers.transcript?.(finalText, true);
     }
   }
 }

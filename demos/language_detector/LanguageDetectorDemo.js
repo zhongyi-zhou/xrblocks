@@ -7,8 +7,9 @@ import {
 } from './LanguageDetectorClient.js';
 import {GeminiLiveSource} from './SpeechSources.js';
 
-const TRANSCRIPT_PLACEHOLDER =
-  'Pinch the mic to start. Speak in any language and the detector will guess what it is.';
+const PLACEHOLDER =
+  'Pinch the mic and say something in any language.\nEach utterance is detected separately.';
+const MAX_UTTERANCES = 8;
 
 export class LanguageDetectorDemo extends xb.Script {
   static dependencies = {camera: THREE.Camera};
@@ -22,8 +23,8 @@ export class LanguageDetectorDemo extends xb.Script {
 
     this.source = null;
     this.listening = false;
-    this.detectTimer = null;
-    this.lastTextDetected = '';
+    this.utterances = []; // [{code, name, prob, text}]
+    this.interim = '';
 
     this._buildUi();
   }
@@ -34,6 +35,7 @@ export class LanguageDetectorDemo extends xb.Script {
 
     const grid = panel.addGrid();
 
+    // Title bar.
     const titleRow = grid.addRow({weight: 0.1});
     this.titleText = titleRow.addText({
       text: 'Live Language Detector',
@@ -41,29 +43,25 @@ export class LanguageDetectorDemo extends xb.Script {
       fontSize: 0.06,
     });
 
-    const transcriptRow = grid.addRow({weight: 0.5});
-    this.transcriptView = new xb.ScrollingTroikaTextView({
-      text: TRANSCRIPT_PLACEHOLDER,
-      fontSize: 0.045,
+    // Status bar (red dot when listening, hint otherwise).
+    const statusRow = grid.addRow({weight: 0.07});
+    this.statusText = statusRow.addText({
+      text: 'Idle',
+      fontColor: '#94a3b8',
+      fontSize: 0.038,
+    });
+
+    // Utterance list (scrollable).
+    const listRow = grid.addRow({weight: 0.66});
+    this.listView = new xb.ScrollingTroikaTextView({
+      text: PLACEHOLDER,
+      fontSize: 0.044,
       textAlign: 'left',
       fontColor: '#e7eaf2',
     });
-    transcriptRow.add(this.transcriptView);
+    listRow.add(this.listView);
 
-    const langRow = grid.addRow({weight: 0.18});
-    this.languageText = langRow.addText({
-      text: 'No detection yet',
-      fontColor: '#7dd3fc',
-      fontSize: 0.055,
-    });
-
-    const altRow = grid.addRow({weight: 0.1});
-    this.altLanguageText = altRow.addText({
-      text: '',
-      fontColor: '#94a3b8',
-      fontSize: 0.035,
-    });
-
+    // Controls row.
     const controlRow = grid.addRow({weight: 0.17});
     const controlGrid = controlRow.addPanel({showEdge: false}).addGrid();
 
@@ -94,6 +92,7 @@ export class LanguageDetectorDemo extends xb.Script {
     if (this.listening) {
       await this._stop();
       this._setStatus('Stopped');
+      this._setMicActive(false);
       return;
     }
     if (!GeminiLiveSource.isAvailable()) {
@@ -107,12 +106,14 @@ export class LanguageDetectorDemo extends xb.Script {
       this._setStatus('Error: ' + (err?.message || err));
       this.listening = false;
       this.source = null;
+      this._setMicActive(false);
     });
     try {
       await source.start();
       this.source = source;
       this.listening = true;
-      this._setStatus('Listening… speak any language');
+      this._setStatus('● Listening — speak any language');
+      this._setMicActive(true);
     } catch (err) {
       console.error('Failed to start:', err);
       this._setStatus('Failed to start: ' + (err?.message || err));
@@ -128,52 +129,60 @@ export class LanguageDetectorDemo extends xb.Script {
   }
 
   _clear() {
+    this.utterances = [];
+    this.interim = '';
     this.source?.reset?.();
-    this.transcriptView.setText(TRANSCRIPT_PLACEHOLDER);
-    this.languageText.setText('No detection yet');
-    this.altLanguageText.setText('');
-    this.lastTextDetected = '';
+    this._renderList();
   }
 
   _setStatus(message) {
-    this.titleText.setText(message);
+    this.statusText.setText(message);
+  }
+
+  _setMicActive(active) {
+    this.micButton.setText?.(active ? 'stop' : 'mic');
   }
 
   _onTranscript(text, isFinal) {
     if (!text) return;
-    this.transcriptView.setText(text);
-    if (this.detectTimer) clearTimeout(this.detectTimer);
-    const delay = isFinal ? 50 : 350;
-    this.detectTimer = setTimeout(() => this._runDetection(text), delay);
+    if (isFinal) {
+      const lang = this._detect(text);
+      this.utterances.push({...lang, text});
+      if (this.utterances.length > MAX_UTTERANCES) this.utterances.shift();
+      this.interim = '';
+    } else {
+      this.interim = text;
+    }
+    this._renderList();
   }
 
-  _runDetection(text) {
-    if (!this.detector?.detector) return;
-    if (text.length < 4) {
-      this.languageText.setText('Need a few more characters…');
-      this.altLanguageText.setText('');
-      return;
+  _detect(text) {
+    if (!this.detector?.detector || text.length < 4) {
+      return {code: '??', name: '…', prob: 0};
     }
-    if (text === this.lastTextDetected) return;
-    this.lastTextDetected = text;
-
     const langs = this.detector.detect(text);
-    if (!langs.length) {
-      this.languageText.setText('Unknown');
-      this.altLanguageText.setText('');
+    if (!langs.length) return {code: '??', name: 'Unknown', prob: 0};
+    const top = langs[0];
+    return {
+      code: top.languageCode.toUpperCase(),
+      name: languageName(top.languageCode),
+      prob: top.probability,
+    };
+  }
+
+  _renderList() {
+    if (!this.utterances.length && !this.interim) {
+      this.listView.setText(PLACEHOLDER);
       return;
     }
-    const top = langs[0];
-    this.languageText.setText(
-      `${languageName(top.languageCode)} (${Math.round(top.probability * 100)}%)`
+    const lines = this.utterances.map(
+      (u) => `${u.code.padEnd(3)} ${u.name}  ${Math.round(u.prob * 100)}%
+    ${u.text}`
     );
-    const others = langs
-      .slice(1)
-      .map(
-        (l) =>
-          `${languageName(l.languageCode)} ${Math.round(l.probability * 100)}%`
-      )
-      .join('   ·   ');
-    this.altLanguageText.setText(others);
+    if (this.interim) {
+      lines.push(`···  …
+    ${this.interim}`);
+    }
+    this.listView.setText(lines.join('\n\n'));
   }
 }
