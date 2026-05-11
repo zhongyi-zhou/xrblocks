@@ -72,14 +72,18 @@ export class LanguageDetectorDemo extends xb.Script {
         fontColor: '#7f95b3',
         fontSize: 0.022,
         textAlign: 'left',
+        anchorX: 'left',
       });
+      labelText.x = -0.5;
       const bodyRow = slotGrid.addRow({weight: 0.6});
       const bodyText = bodyRow.addText({
         text: '',
         fontColor: '#ffffff',
         fontSize: 0.04,
         textAlign: 'left',
+        anchorX: 'left',
       });
+      bodyText.x = -0.5;
       this.itemSlots.push({slotRow, labelText, bodyText});
     }
     this.placeholderRow = listRow;
@@ -161,14 +165,6 @@ export class LanguageDetectorDemo extends xb.Script {
     this._renderList();
   }
 
-  _setStatus(message) {
-    this.statusText.setText(message);
-  }
-
-  _setMicActive(active) {
-    this.micButton.setText?.(active ? 'stop' : 'mic');
-  }
-
   _onTranscript(text, isFinal) {
     if (!text) return;
     if (isFinal) {
@@ -178,18 +174,16 @@ export class LanguageDetectorDemo extends xb.Script {
       this.interim = '';
       this.interimLang = null;
       if (this.interimTimer) clearTimeout(this.interimTimer);
-      this._renderList();
-      this._renderInterim();
     } else {
       this.interim = text;
       // Debounce interim detection so we're not running it on every char.
       if (this.interimTimer) clearTimeout(this.interimTimer);
       this.interimTimer = setTimeout(() => {
         this.interimLang = this._detect(text);
-        this._renderInterim();
+        this._renderList();
       }, 200);
-      this._renderInterim();
     }
+    this._renderList();
   }
 
   _detect(text) {
@@ -207,40 +201,48 @@ export class LanguageDetectorDemo extends xb.Script {
   }
 
   _renderList() {
+    // Build the visible list: completed utterances + a live interim entry at
+    // the bottom (if any). Cap so the live entry always has room.
+    const items = this.utterances.slice();
+    if (this.interim) {
+      const live = this.interimLang;
+      items.push({
+        code: live?.code ?? '··',
+        name: live?.name ?? 'detecting',
+        prob: live?.prob ?? 0,
+        text: this.interim,
+        live: true,
+      });
+    }
+    while (items.length > this.itemSlots.length) items.shift();
+
     for (let i = 0; i < this.itemSlots.length; i++) {
       const slot = this.itemSlots[i];
-      const u = this.utterances[i];
+      const u = items[i];
       if (u) {
+        const pct = u.prob ? `${Math.round(u.prob * 100)}%` : '…';
         slot.labelText.setText(
-          `${u.code} · ${u.name.toUpperCase()} · ${Math.round(u.prob * 100)}%`
+          `${u.code} · ${u.name.toUpperCase()} · ${pct}${u.live ? '  ●' : ''}`
         );
         slot.bodyText.setText(u.text);
         slot.slotRow.visible = true;
+      } else if (i === 0 && !items.length) {
+        slot.labelText.setText('');
+        slot.bodyText.setText(PLACEHOLDER);
+        slot.slotRow.visible = true;
       } else {
-        // Show placeholder hint in the first empty slot when nothing else.
-        if (i === 0 && !this.utterances.length) {
-          slot.labelText.setText('');
-          slot.bodyText.setText(PLACEHOLDER);
-          slot.slotRow.visible = true;
-        } else {
-          slot.labelText.setText('');
-          slot.bodyText.setText('');
-          slot.slotRow.visible = false;
-        }
+        slot.labelText.setText('');
+        slot.bodyText.setText('');
+        slot.slotRow.visible = false;
       }
     }
   }
 
-  _renderInterim() {
-    if (!this.listening) return;
-    if (!this.interim) {
-      this._setStatus('● Listening — speak any language');
-      return;
-    }
-    const live = this.interimLang;
-    const tag = live
-      ? `${live.code} · ${live.name} ${Math.round(live.prob * 100)}%`
-      : '·· detecting…';
-    this._setStatus(`${tag}   |  ${this.interim}`);
+  _setStatus(message) {
+    this.statusText.setText(message);
+  }
+
+  _setMicActive(active) {
+    this.micButton.setText?.(active ? 'stop' : 'mic');
   }
 }
