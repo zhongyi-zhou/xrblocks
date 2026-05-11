@@ -132,6 +132,11 @@ export class LanguageDetectorDemo extends xb.Script {
         .addPanel({backgroundColor: '#00000000'})
         .addGrid();
 
+      // Inner spacer at top of slot — when the slot is bigger than the
+      // natural content, this absorbs the extra so content stays bottom-aligned
+      // at a constant natural size.
+      const innerSpacer = slotGrid.addRow({weight: 0});
+
       const labelRow = slotGrid.addRow({weight: LABEL_FRAC});
       const labelText = labelRow.addText({
         text: '',
@@ -155,6 +160,7 @@ export class LanguageDetectorDemo extends xb.Script {
       this.itemSlots.push({
         slotRow,
         slotGrid,
+        innerSpacer,
         labelRow,
         labelText,
         bodyRow,
@@ -334,7 +340,10 @@ export class LanguageDetectorDemo extends xb.Script {
     }
     const gapsCost = Math.max(0, activeCount - 1) * GAP_FRAC;
     totalCost += gapsCost;
-    // Scale so all rows together sum to LIST_BUDGET (fill the area).
+    // Scale slot rows so the list fills the area (smooth transitions, no
+    // jumps). Inside each slot, label/body keep their natural fractions of
+    // the list — extra space goes into an inner spacer at the top of the
+    // slot, so content stays bottom-aligned at a constant size.
     const scale = totalCost > 0 ? LIST_BUDGET / totalCost : 0;
 
     let layoutChanged = false;
@@ -344,9 +353,14 @@ export class LanguageDetectorDemo extends xb.Script {
 
       const lines = slotLineCounts[i];
       const slotW = slotCosts[i] * scale;
-      const labelW = slotCosts[i] > 0 ? LABEL_FRAC / slotCosts[i] : 0;
-      const bodyW =
-        slotCosts[i] > 0 ? (lines * BODY_LINE_FRAC) / slotCosts[i] : 0;
+      // Inner weights are absolute fractions of slotGrid (which fills slotRow).
+      // We want labelRow and bodyRow to have constant world-space height equal
+      // to LABEL_FRAC and lines*BODY_LINE_FRAC of the listGrid. Since
+      // labelRow.world = labelRow.weight * slotRow.weight * listGrid.height,
+      // labelRow.weight = LABEL_FRAC / slotRow.weight = 1/scale * (LABEL_FRAC/slotCost).
+      const labelW = slotW > 0 ? LABEL_FRAC / slotW : 0;
+      const bodyW = slotW > 0 ? (lines * BODY_LINE_FRAC) / slotW : 0;
+      const innerSpacerW = Math.max(0, 1 - labelW - bodyW);
 
       if (Math.abs(slot.slotRow.weight - slotW) > 1e-4) {
         slot.slotRow.weight = slotW;
@@ -354,8 +368,10 @@ export class LanguageDetectorDemo extends xb.Script {
       }
       if (
         Math.abs(slot.labelRow.weight - labelW) > 1e-4 ||
-        Math.abs(slot.bodyRow.weight - bodyW) > 1e-4
+        Math.abs(slot.bodyRow.weight - bodyW) > 1e-4 ||
+        Math.abs(slot.innerSpacer.weight - innerSpacerW) > 1e-4
       ) {
+        slot.innerSpacer.weight = innerSpacerW;
         slot.labelRow.weight = labelW;
         slot.bodyRow.weight = bodyW;
         layoutChanged = true;
